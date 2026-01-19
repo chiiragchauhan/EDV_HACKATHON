@@ -1,0 +1,7 @@
+{
+  "name": "ZTrust - AI Zero-Trust Access Controller",
+  "description": "An enterprise-grade cybersecurity dashboard for continuous authentication and real-time trust evaluation using AI.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
