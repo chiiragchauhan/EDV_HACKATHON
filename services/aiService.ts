@@ -1,5 +1,6 @@
 
-import { ApiMetric } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { ApiMetric, SessionEvent, BreachAlert } from "../types";
 
 let metricCallback: ((metric: ApiMetric) => void) | null = null;
 
@@ -7,21 +8,17 @@ export function setMetricCallback(cb: (metric: ApiMetric) => void) {
   metricCallback = cb;
 }
 
-/**
- * Simulates a network delay and records metrics to keep the Admin UI alive.
- */
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
 async function recordMetric<T>(endpoint: string, action: () => Promise<T>): Promise<T> {
   const start = performance.now();
-  // Simulate a realistic network latency (300ms - 800ms)
-  await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500));
-  
   try {
     const result = await action();
     const duration = performance.now() - start;
     metricCallback?.({
       id: Math.random().toString(36).substr(2, 9),
       timestamp: Date.now(),
-      endpoint: `LocalAuth:${endpoint}`,
+      endpoint: `Gemini:${endpoint}`,
       duration,
       status: 'SUCCESS'
     });
@@ -31,7 +28,7 @@ async function recordMetric<T>(endpoint: string, action: () => Promise<T>): Prom
     metricCallback?.({
       id: Math.random().toString(36).substr(2, 9),
       timestamp: Date.now(),
-      endpoint: `LocalAuth:${endpoint}`,
+      endpoint: `Gemini:${endpoint}`,
       duration,
       status: 'ERROR'
     });
@@ -40,70 +37,96 @@ async function recordMetric<T>(endpoint: string, action: () => Promise<T>): Prom
 }
 
 /**
- * Locally analyzes cybersecurity trust signals to provide status updates.
+ * Uses Gemini-3-flash to analyze trust signals in a cybersecurity context.
  */
-export async function analyzeTrustSignals(activeSignals: string[]) {
+export async function analyzeTrustSignals(activeSignals: string[], currentScore: number) {
   return recordMetric('analyzeTrustSignals', async () => {
-    if (activeSignals.length === 0) {
-      return "Your session is secured by standard monitoring and continuous identity verification.";
-    }
-
-    const messages = [
-      `Caution: Detected ${activeSignals.join(' and ')}. Trust level is degrading due to environmental risks.`,
-      `Security Alert: ${activeSignals[0]} signal identified. Implementing enhanced packet inspection.`,
-      `Protocol update: Mitigating risks associated with ${activeSignals.join(', ')}.`,
-      `Anomalous behavior detected via ${activeSignals[activeSignals.length - 1]}. Monitoring for lateral movement.`,
-      `Zero-Trust policy applied to ${activeSignals.join(' context')}. Re-authentication may be required.`
-    ];
-
-    return messages[Math.floor(Math.random() * messages.length)];
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Context: A user's Zero-Trust score is ${currentScore}/100. 
+      Active signals: ${activeSignals.length > 0 ? activeSignals.join(', ') : 'None'}.
+      Action: Provide a single concise, technical, professional sentence for a cybersecurity dashboard describing the current trust state and potential mitigation steps.`,
+      config: {
+        systemInstruction: "You are an AI Security Analyst for ZTrust. Keep responses professional, authoritative, and under 25 words.",
+      },
+    });
+    return response.text?.trim() || "System state verified. Monitoring for anomalies.";
   });
 }
 
 /**
- * Locally simulates a dark web scan with realistic randomized data.
+ * Uses Gemini-3-pro to provide high-level SOC advice based on logs.
+ */
+export async function getSOCAdvice(logs: SessionEvent[], breaches: BreachAlert[]) {
+  return recordMetric('getSOCAdvice', async () => {
+    const logSummary = logs.slice(0, 10).map(l => `${l.timestamp}: ${l.action} (${l.status})`).join('\n');
+    const breachSummary = breaches.slice(0, 5).map(b => `${b.source}: ${b.severity}`).join('\n');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `Analyze these recent SOC logs and breaches:
+      LOGS:
+      ${logSummary}
+      
+      BREACHES:
+      ${breachSummary}
+      
+      Provide a high-level summary of the network security posture and one key recommendation.`,
+      config: {
+        systemInstruction: "You are a Senior Security Architect. Provide a strategic 2-sentence summary.",
+      },
+    });
+    return response.text?.trim() || "Intelligence synchronized. POSTURE: STABLE.";
+  });
+}
+
+/**
+ * Checks for dark web exposure using simulated results enhanced by Gemini.
  */
 export async function checkDarkWeb(email: string) {
   return recordMetric('checkDarkWeb', async () => {
-    const sources = ["Pastebin Leak", "ShadowForum", "Genesis Market", "Collection #5", "RedLine Stealer Logs", "LulzSec Archive"];
-    const severities: ("CRITICAL" | "MODERATE")[] = ["CRITICAL", "MODERATE"];
-    
-    // Generate 2 random breach objects
-    return [
-      {
-        id: Math.random().toString(36).substr(2, 9),
-        source: sources[Math.floor(Math.random() * sources.length)],
-        date: new Date(Date.now() - Math.random() * 10000000000).toLocaleDateString(),
-        severity: severities[Math.floor(Math.random() * severities.length)],
-        description: `Credentials associated with ${email.split('@')[0]} found in a clear-text dump.`
-      },
-      {
-        id: Math.random().toString(36).substr(2, 9),
-        source: sources[Math.floor(Math.random() * sources.length)],
-        date: new Date(Date.now() - Math.random() * 5000000000).toLocaleDateString(),
-        severity: severities[Math.floor(Math.random() * severities.length)],
-        description: `Multi-factor bypass token for ${email} listed on underground marketplace.`
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Generate 2 realistic cybersecurity breach records for the email ${email}. 
+      Include source, date, severity (CRITICAL or MODERATE), and description.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              source: { type: Type.STRING },
+              date: { type: Type.STRING },
+              severity: { type: Type.STRING, enum: ['CRITICAL', 'MODERATE'] },
+              description: { type: Type.STRING }
+            },
+            required: ["source", "date", "severity", "description"]
+          }
+        }
       }
-    ];
+    });
+    
+    try {
+      return JSON.parse(response.text || '[]');
+    } catch {
+      return [];
+    }
   });
 }
 
 /**
- * Locally analyzes password strength using entropy-based logic.
+ * Analyzes password strength.
  */
 export async function analyzePassword(password: string) {
   return recordMetric('analyzePassword', async () => {
-    if (password.length < 6) return 'WEAK';
-    
-    let score = 0;
-    if (password.length > 10) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
-    if (password.length > 14) score++;
-
-    if (score >= 4) return 'STRONG';
-    if (score >= 2) return 'MEDIUM';
-    return 'WEAK';
+    if (password.length < 8) return 'WEAK';
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Analyze the strength of this password (return only one word: WEAK, MEDIUM, or STRONG): ${password}`,
+    });
+    const strength = response.text?.toUpperCase().trim();
+    if (strength === 'STRONG' || strength === 'MEDIUM' || strength === 'WEAK') return strength;
+    return 'MEDIUM';
   });
 }
